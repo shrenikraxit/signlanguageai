@@ -1,52 +1,71 @@
-import requests
-import json
-from flask import Flask, jsonify, request
+from flask import Flask, render_template, request, redirect, url_for, send_from_directory
+from werkzeug.utils import secure_filename
+import os
+from flask_cors import CORS
 
 app = Flask(__name__)
+CORS(app)
 
-# Replace with your actual endpoint and subscription key
-subscription_key = '22de4d835cd446b1a259ad43b1f37d60'
-vision_endpoint = 'https://imageanalysisshrenik.cognitiveservices.azure.com/'
+# Configuration for file uploads
+UPLOAD_FOLDER = 'static/uploads'
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg', 'gif'}
 
-# Define the features you want to analyze
-analyze_url = f'{vision_endpoint}?visualFeatures=Description,Tags'
+# Debugging: ensure folder exists and print out directory contents
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
 
-# Function to send the image data to Azure Computer Vision
-def analyze_image_with_azure(image_data):
-    headers = {
-        'Ocp-Apim-Subscription-Key': subscription_key,
-        'Content-Type': 'application/octet-stream',
-    }
+print("UPLOAD_FOLDER contents before upload:", os.listdir(UPLOAD_FOLDER))
 
-    response = requests.post(analyze_url, headers=headers, data=image_data)
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
 
-    if response.status_code == 200:
-        print("Image successfully sent to Azure Computer Vision")
-        return response.json()
+@app.route('/')
+def index():
+    images = os.listdir(app.config['UPLOAD_FOLDER'])
+    image_urls = [url_for('uploaded_file', filename=image) for image in images]
+    return render_template('index.html', images=image_urls)
+
+@app.route('/upload', methods=['POST'])
+def upload_file():
+    if 'file' not in request.files:
+        print("No file part")
+        return redirect(request.url)
+    file = request.files['file']
+    if file.filename == '':
+        print("No selected file")
+        return redirect(request.url)
+    if file and allowed_file(file.filename):
+        filename = secure_filename(file.filename)
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(file_path)
+        print(f"File saved to {file_path}")
+        return redirect(url_for('index'))
     else:
-        print(f"Failed to analyze image with Azure: {response.status_code}")
-        print(response.text)
-        return None
+        print("File not allowed")
+        return redirect(request.url)
 
-@app.route('/process-json', methods=['POST'])
-def process_json():
-    # Get JSON data from request
-    data = request.get_json()
-
-    if not data or 'image' not in data:
-        return jsonify({'error': 'No image data received'}), 400
-
-    # Decode the base64 image data to bytes
-    image_data = data['image'].split(',')[1]
-    image_bytes = base64.b64decode(image_data)
-
-    # Analyze the image with Azure Computer Vision
-    azure_response = analyze_image_with_azure(image_bytes)
-
-    if azure_response:
-        return jsonify({'message': 'Image analyzed by Azure', 'response': azure_response}), 200
-    else:
-        return jsonify({'error': 'Failed to analyze image with Azure'}), 500
+@app.route('/uploads/<filename>')
+def uploaded_file(filename):
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
 if __name__ == '__main__':
-    app.run(port=5001, debug=True)
+    app.run(host='0.0.0.0', port=8080, debug=True)
+
+
+@app.route('/upload', methods=['POST'])
+def upload_image():
+    data = request.get_json()
+    image_data = data.get('image')
+
+    # You can process the image data here (e.g., save it to a file or database)
+    # For example, to save it to a file:
+    if image_data:
+        # Extract the base64 part of the image data URL
+        image_base64 = image_data.split(",")[1]
+        with open('received_image.png', 'wb') as f:
+            f.write(base64.b64decode(image_base64))
+        return jsonify({'message': 'Image received and saved'}), 200
+    else:
+        return jsonify({'error': 'No image data received'}), 400
+
