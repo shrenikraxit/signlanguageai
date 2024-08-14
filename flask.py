@@ -1,3 +1,8 @@
+from flask import Flask
+from werkzeug.utils import secure_filename
+import os
+from flask_cors import CORS
+
 app = Flask(__name__)
 CORS(app)
 
@@ -63,4 +68,3 @@ def upload_image():
         return jsonify({'message': 'Image received and saved'}), 200
     else:
         return jsonify({'error': 'No image data received'}), 400
-
